@@ -1,0 +1,16 @@
+research_task:
+  description: >
+    Realiza una investigación exhaustiva sobre {topic}
+    Asegúrate de encontrar información interesante y relevante, dado que
+    el año actual es {current_year}.
+  expected_output: >
+    Una lista con 5 puntos clave de la información más relevante sobre {topic}
+  agent: researcher
+
+reporting_task:
+  description: >
+    Revisa el contexto obtenido y desarrolla cada tema en una sección completa para el informe.
+  expected_output: >
+    Un informe completo con los temas principales, cada uno con una sección completa de información.
+  agent: reporting_analyst
+  output_file: output/report.md

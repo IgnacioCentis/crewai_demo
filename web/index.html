@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CrewAI Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">Crew local</p>
+      <h1>Ejecutá tu crew</h1>
+      <p class="lede">Completá el tema y el año, presioná <strong>Comenzar</strong> y seguí la ejecución en vivo.</p>
+    </header>
+
+    <section class="card form-card">
+      <form id="run-form" class="form">
+        <label class="field">
+          <span class="label">Tema del research</span>
+          <input type="text" id="topic" name="topic" placeholder="Ej: IA generativa en salud" required autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="label">Año actual (contexto)</span>
+          <input type="text" id="current_year" name="current_year" placeholder="2026" required pattern="[0-9]{4}" />
+        </label>
+        <div class="actions">
+          <button type="submit" id="btn-start" class="btn primary">
+            <span class="btn-text">Comenzar</span>
+            <span class="btn-spinner" hidden aria-hidden="true"></span>
+          </button>
+          <button type="button" id="btn-clear" class="btn ghost">Limpiar log</button>
+        </div>
+      </form>
+    </section>
+
+    <div class="grid-two">
+      <section class="card">
+        <div class="card-head">
+          <h2>Ejecución</h2>
+          <span id="status-pill" class="pill idle">Listo</span>
+        </div>
+        <pre id="log" class="log" aria-live="polite"></pre>
+      </section>
+      <section class="card">
+        <div class="card-head">
+          <h2>Resultado</h2>
+        </div>
+        <div id="result-final" class="result-block muted">El resumen final del crew aparecerá aquí.</div>
+        <h3 class="subhead">Informe (report.md)</h3>
+        <article id="result-report" class="report prose muted">Todavía no hay informe generado.</article>
+      </section>
+    </div>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
