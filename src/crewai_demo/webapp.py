@@ -287,7 +287,7 @@ async def chat_endpoint(payload: ChatPayload) -> dict[str, Any]:
                 "report_md": "",
             }
 
-        hist = get_history(session_id, limit=50)
+        hist = get_history(session_id, limit=20)
         hist_json = dumps_jsonable(list(reversed(hist)))
         answer = _run_chat_crew(session_id, msg, hist_json).strip()
         sql = get_last_executed_sql()

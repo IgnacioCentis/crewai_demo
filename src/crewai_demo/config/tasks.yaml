@@ -10,8 +10,11 @@ responder_chat:
     Mensaje actual del usuario: {message}
 
     Instrucciones:
-    - Si el usuario pide datos, métricas, listados, rankings, stock, ventas, productos, recetas o insumos,
-      usá la herramienta consulta_mysql_analytics con una única consulta SELECT válida sobre las tablas permitidas.
+    - Herramientas disponibles (nombres exactos, las únicas para MySQL): schema_mysql_chocolart, consulta_mysql_analytics.
+    - Si necesitás confirmar columnas o tipos, podés usar schema_mysql_chocolart cuando lo consideres útil (no es obligatorio en cada turno).
+    - Si el usuario pide datos sobre ventas, stock, recetas, insumos, productos terminados o presupuesto de ventas en kilos,
+      usá consulta_mysql_analytics con una única consulta SELECT válida solo sobre:
+      insumos, recetas, productos_terminados, presupuesto_ventas_kilos o ventas.
     - Si el mensaje es un saludo, charla general, o no requiere consultar la base, no uses la herramienta y respondé de forma conversacional.
     - Si la pregunta es ambigua para SQL, pedí una aclaración breve (fechas, código de producto, cliente, etc.).
     - Respondé siempre en español.

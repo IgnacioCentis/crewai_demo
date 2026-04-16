@@ -10,16 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from crewai_demo.db import get_engine
-
-ALLOWED_TABLES = frozenset(
-    {
-        "insumos",
-        "recetas",
-        "productos_terminados",
-        "presupuesto_ventas_kilos",
-        "ventas",
-    }
-)
+from crewai_demo.tools.db_allowed import ALLOWED_TABLES
 
 _last_executed_sql: ContextVar[str] = ContextVar("last_executed_sql", default="")
 

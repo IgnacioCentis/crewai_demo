@@ -3,6 +3,7 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import CrewBase, agent, crew, task
 
 from crewai_demo.tools.db_query_tool import DatabaseAnalyticsTool
+from crewai_demo.tools.schema_tool import DatabaseSchemaTool
 
 
 @CrewBase
@@ -17,7 +18,7 @@ class ChocolartAssistant:
         return Agent(
             config=self.agents_config["analista_datos"],  # type: ignore[index]
             verbose=True,
-            tools=[DatabaseAnalyticsTool()],
+            tools=[DatabaseSchemaTool(), DatabaseAnalyticsTool()],
         )
 
     @task

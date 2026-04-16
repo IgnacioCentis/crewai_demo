@@ -12,6 +12,7 @@ generar_informe_conversacion:
     - Recomendaciones o próximos pasos
 
     No inventes cifras ni tablas que no aparezcan en el historial.
+    No tenés herramientas de base de datos: solo el JSON del historial (incluye query_generada si fue guardada).
   expected_output: >
     Un documento Markdown completo (títulos ## y ###, listas donde corresponda). Sin bloque de código fence envolviendo todo el documento.
   agent: redactor_informes

@@ -1,0 +1,173 @@
+# Esquema Chocolart — alineado al export MySQL (tablas de negocio permitidas).
+# Lo consume la herramienta schema_mysql_chocolart del agente analista_datos.
+
+tables:
+  insumos:
+    description: "Insumos con stock y costo por depósito."
+    columns:
+      - name: id
+        type: int(11) NOT NULL
+        description: "PK"
+      - name: codigo_insumo
+        type: varchar(100) DEFAULT NULL
+        description: ""
+      - name: descripcion_insumo
+        type: text
+        description: ""
+      - name: stock
+        type: decimal(18,2) DEFAULT NULL
+        description: ""
+      - name: cantidad_comprada
+        type: int(11) NOT NULL
+        description: ""
+      - name: costo
+        type: decimal(15,2) NOT NULL
+        description: ""
+      - name: unidad_medida
+        type: varchar(20) DEFAULT NULL
+        description: ""
+      - name: codigo_deposito
+        type: varchar(50) DEFAULT NULL
+        description: ""
+      - name: ultima_actualizacion
+        type: timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        description: ""
+
+  presupuesto_ventas_kilos:
+    description: "Presupuesto de ventas en kilos por producto, año y mes."
+    columns:
+      - name: id
+        type: int(11) NOT NULL
+        description: "PK"
+      - name: codigo_producto
+        type: varchar(50) DEFAULT NULL
+        description: ""
+      - name: tipo_producto
+        type: varchar(100) DEFAULT NULL
+        description: ""
+      - name: anio
+        type: int(11) DEFAULT NULL
+        description: ""
+      - name: enero
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: febrero
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: marzo
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: abril
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: mayo
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: junio
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: julio
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: agosto
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: septiembre
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: octubre
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: noviembre
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: diciembre
+        type: decimal(12,2) DEFAULT '0.00'
+        description: ""
+      - name: fecha_registro
+        type: timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+        description: ""
+
+  productos_terminados:
+    description: "Producto terminado con stock por depósito."
+    columns:
+      - name: id
+        type: int(11) NOT NULL
+        description: "PK"
+      - name: codigo_producto
+        type: varchar(100) DEFAULT NULL
+        description: ""
+      - name: descripcion_producto
+        type: text
+        description: ""
+      - name: stock
+        type: decimal(15,2) DEFAULT NULL
+        description: ""
+      - name: unidad_medida
+        type: varchar(20) DEFAULT NULL
+        description: ""
+      - name: codigo_deposito
+        type: varchar(50) DEFAULT NULL
+        description: ""
+      - name: ultima_actualizacion
+        type: timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        description: ""
+
+  recetas:
+    description: "Composición de insumos por producto (BOM)."
+    columns:
+      - name: id
+        type: int(11) NOT NULL
+        description: "PK"
+      - name: codigo_producto
+        type: varchar(100) DEFAULT NULL
+        description: ""
+      - name: descripcion_producto
+        type: text
+        description: ""
+      - name: codigo_insumo
+        type: varchar(100) DEFAULT NULL
+        description: ""
+      - name: descripcion_insumo
+        type: text
+        description: ""
+      - name: cantidad
+        type: decimal(18,8) DEFAULT NULL
+        description: "Participación del insumo en la receta; la suma por código de artículo debe dar 1."
+      - name: unidad_medida
+        type: varchar(20) DEFAULT NULL
+        description: ""
+
+  ventas:
+    description: "Ventas por línea (fecha, cliente, producto, importes y cantidades)."
+    columns:
+      - name: id
+        type: int(11) NOT NULL
+        description: "PK"
+      - name: fecha
+        type: date NOT NULL
+        description: ""
+      - name: cliente
+        type: varchar(255) DEFAULT NULL
+        description: ""
+      - name: codigo_producto
+        type: varchar(100) DEFAULT NULL
+        description: ""
+      - name: descripcion_producto
+        type: varchar(255) DEFAULT NULL
+        description: ""
+      - name: precio_por_kg
+        type: decimal(15,2) DEFAULT '0.00'
+        description: ""
+      - name: cantidad_kg
+        type: decimal(15,2) DEFAULT '0.00'
+        description: ""
+      - name: costo_unitario_por_kg
+        type: decimal(18,2) DEFAULT '0.00'
+        description: ""
+      - name: venta_total_pesos
+        type: decimal(15,2) DEFAULT '0.00'
+        description: ""
+      - name: tipo_producto
+        type: varchar(150) DEFAULT NULL
+        description: ""
