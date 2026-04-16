@@ -7,6 +7,7 @@ import io
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import traceback
@@ -22,6 +23,45 @@ from pydantic import BaseModel, Field
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
+_PENDING_REPORT_CONFIRMATION: set[str] = set()
+_YES_RE = re.compile(
+    r"^\s*(si|sí|dale|ok|okay|de una|confirmo|confirmar|y|yes)\s*[!.]*\s*$",
+    re.I,
+)
+_NO_RE = re.compile(
+    r"^\s*(no|nop|mejor no|cancelar|cancela|dejalo|déjalo)\s*[!.]*\s*$",
+    re.I,
+)
+
+
+def _wants_report(msg: str) -> bool:
+    s = (msg or "").lower()
+    keys = [
+        "reporte",
+        "informe",
+        "report",
+        "pdf",
+        ".pdf",
+        "markdown",
+        ".md",
+        "descargar",
+        "exportar",
+        "resumen de la conversacion",
+        "resumen de la conversación",
+    ]
+    return any(k in s for k in keys)
+
+
+def _ask_report_confirmation() -> str:
+    return (
+        "¿Querés que genere un informe de esta conversación? Respondé **sí** o **no**. "
+        "Si confirmás, genero **.md** y **.pdf** en la carpeta output del proyecto."
+    )
+
+
+def _report_download_path(session_id: str, fmt: str) -> str:
+    return f"/api/chat/report/{session_id}.{fmt}"
+
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -31,8 +71,10 @@ def _web_dir() -> Path:
     return _project_root() / "web"
 
 
-def _report_path() -> Path:
-    return _project_root() / "output" / "report.md"
+def _output_dir() -> Path:
+    p = _project_root() / "output"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 class RunPayload(BaseModel):
@@ -72,11 +114,20 @@ def _run_crew_blocking(inputs: dict[str, str], log_q: queue.Queue[str | None]) -
     old_out, old_err = sys.stdout, sys.stderr
     stream = _QueueStream(log_q)
     try:
-        from crewai_demo.crew import CrewaiDemo
+        from crewai_demo.crew import ChocolartAssistant
+        from crewai_demo.tools.db_query_tool import reset_last_executed_sql
 
         sys.stdout = stream
         sys.stderr = stream
-        crew_result = CrewaiDemo().crew().kickoff(inputs=inputs)
+        reset_last_executed_sql()
+        topic = inputs.get("topic", "").strip()
+        year = inputs.get("current_year", "").strip()
+        crew_inputs = {
+            "session_id": "stream_demo",
+            "message": f"{topic} (contexto: año {year})",
+            "conversation_history": "[]",
+        }
+        crew_result = ChocolartAssistant().crew().kickoff(inputs=crew_inputs)
         result["ok"] = True
         result["final_output"] = str(crew_result) if crew_result is not None else ""
     except Exception as e:
@@ -85,13 +136,41 @@ def _run_crew_blocking(inputs: dict[str, str], log_q: queue.Queue[str | None]) -
         sys.stdout, sys.stderr = old_out, old_err
         log_q.put(None)
 
-    rp = _report_path()
-    if rp.is_file():
-        try:
-            result["report_md"] = rp.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            result["report_md"] = ""
+    result["report_md"] = ""
     return result
+
+
+def _run_chat_crew(session_id: str, message: str, conversation_history_json: str) -> str:
+    root = _project_root()
+    os.chdir(root)
+    load_dotenv(root / ".env")
+    from crewai_demo.crew import ChocolartAssistant
+    from crewai_demo.tools.db_query_tool import reset_last_executed_sql
+
+    reset_last_executed_sql()
+    out = ChocolartAssistant().crew().kickoff(
+        inputs={
+            "session_id": session_id,
+            "message": message,
+            "conversation_history": conversation_history_json,
+        }
+    )
+    return str(out) if out is not None else ""
+
+
+def _run_report_crew(session_id: str, conversation_history_json: str) -> str:
+    root = _project_root()
+    os.chdir(root)
+    load_dotenv(root / ".env")
+    from crewai_demo.crew import ChocolartInformes
+
+    out = ChocolartInformes().crew().kickoff(
+        inputs={
+            "session_id": session_id,
+            "conversation_history": conversation_history_json,
+        }
+    )
+    return str(out) if out is not None else ""
 
 
 app = FastAPI(title="CrewAI Demo UI", version="0.1.0")
@@ -117,18 +196,116 @@ async def db_health() -> dict[str, Any]:
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatPayload) -> dict[str, Any]:
     try:
-        from crewai_demo.chat import chat
+        from crewai_demo.historico import dumps_jsonable, get_history, insert_historico_chat_ai
+        from crewai_demo.output_reports import write_md_and_pdf
+        from crewai_demo.tools.db_query_tool import get_last_executed_sql
 
-        r = chat(session_id=payload.session_id, usuario_pregunta=payload.message.strip())
+        session_id = payload.session_id.strip()
+        msg = payload.message.strip()
+
+        if session_id in _PENDING_REPORT_CONFIRMATION:
+            if _YES_RE.match(msg):
+                _PENDING_REPORT_CONFIRMATION.discard(session_id)
+                hist = get_history(session_id, limit=200)
+                hist_json = dumps_jsonable(list(reversed(hist)))
+                md = _run_report_crew(session_id, hist_json).strip()
+                write_md_and_pdf(session_id, md or "# Informe\n\n(vacío)")
+                answer = (
+                    "Listo. Generé el informe en **Markdown** y **PDF** en la carpeta `output` "
+                    f"(`{session_id}.md` y `{session_id}.pdf`). Podés descargarlos desde la pestaña **Informe**."
+                )
+                insert_historico_chat_ai(
+                    session_id=session_id,
+                    usuario_pregunta=payload.message,
+                    ia_respuesta=answer,
+                    query_generada="",
+                )
+                return {
+                    "ok": True,
+                    "session_id": session_id,
+                    "ia_respuesta": answer,
+                    "usuario_pregunta": payload.message,
+                    "query_generada": "",
+                    "report_format": "md",
+                    "report_download_path": _report_download_path(session_id, "md"),
+                    "report_md": md,
+                }
+            if _NO_RE.match(msg):
+                _PENDING_REPORT_CONFIRMATION.discard(session_id)
+                answer = "Perfecto, no genero informe. Si más adelante lo necesitás, pedime un informe o reporte."
+                insert_historico_chat_ai(
+                    session_id=session_id,
+                    usuario_pregunta=payload.message,
+                    ia_respuesta=answer,
+                    query_generada="",
+                )
+                return {
+                    "ok": True,
+                    "session_id": session_id,
+                    "ia_respuesta": answer,
+                    "usuario_pregunta": payload.message,
+                    "query_generada": "",
+                    "report_format": "",
+                    "report_download_path": "",
+                    "report_md": "",
+                }
+            answer = _ask_report_confirmation()
+            insert_historico_chat_ai(
+                session_id=session_id,
+                usuario_pregunta=payload.message,
+                ia_respuesta=answer,
+                query_generada="",
+            )
+            return {
+                "ok": True,
+                "session_id": session_id,
+                "ia_respuesta": answer,
+                "usuario_pregunta": payload.message,
+                "query_generada": "",
+                "report_format": "",
+                "report_download_path": "",
+                "report_md": "",
+            }
+
+        if _wants_report(msg):
+            _PENDING_REPORT_CONFIRMATION.add(session_id)
+            answer = _ask_report_confirmation()
+            insert_historico_chat_ai(
+                session_id=session_id,
+                usuario_pregunta=payload.message,
+                ia_respuesta=answer,
+                query_generada="",
+            )
+            return {
+                "ok": True,
+                "session_id": session_id,
+                "ia_respuesta": answer,
+                "usuario_pregunta": payload.message,
+                "query_generada": "",
+                "report_format": "",
+                "report_download_path": "",
+                "report_md": "",
+            }
+
+        hist = get_history(session_id, limit=50)
+        hist_json = dumps_jsonable(list(reversed(hist)))
+        answer = _run_chat_crew(session_id, msg, hist_json).strip()
+        sql = get_last_executed_sql()
+        insert_historico_chat_ai(
+            session_id=session_id,
+            usuario_pregunta=payload.message,
+            ia_respuesta=answer,
+            query_generada=sql,
+        )
         return {
             "ok": True,
-            "session_id": r.session_id,
-            "ia_respuesta": r.ia_respuesta,
-            "usuario_pregunta": r.usuario_pregunta,
-            "query_generada": r.query_generada,
-            "report_format": getattr(r, "report_format", ""),
-            "report_download_path": getattr(r, "report_download_path", ""),
-            "report_md": getattr(r, "report_md", ""),
+            "session_id": session_id,
+            "ia_respuesta": answer,
+            "usuario_pregunta": payload.message,
+            "query_generada": sql,
+            "report_format": "",
+            "report_download_path": "",
+            "report_md": "",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -137,7 +314,7 @@ async def chat_endpoint(payload: ChatPayload) -> dict[str, Any]:
 @app.get("/api/chat/history")
 async def chat_history(session_id: str, limit: int = 200) -> dict[str, Any]:
     try:
-        from crewai_demo.chat import get_history
+        from crewai_demo.historico import get_history
 
         return {"ok": True, "session_id": session_id, "items": get_history(session_id=session_id, limit=limit)}
     except Exception as e:
@@ -147,14 +324,21 @@ async def chat_history(session_id: str, limit: int = 200) -> dict[str, Any]:
 @app.post("/api/chat/report")
 async def chat_report(payload: ReportPayload) -> dict[str, Any]:
     try:
-        from crewai_demo.reporting import generate_markdown_report, generate_pdf_from_markdown, report_paths
+        from crewai_demo.historico import dumps_jsonable, get_history
+        from crewai_demo.output_reports import write_md_and_pdf
 
-        md = generate_markdown_report(payload.session_id)
-        paths = report_paths(payload.session_id)
+        hist = get_history(payload.session_id, limit=200)
+        hist_json = dumps_jsonable(list(reversed(hist)))
+        md = _run_report_crew(payload.session_id, hist_json).strip()
+        write_md_and_pdf(payload.session_id, md or "# Informe\n\n(vacío)")
         if payload.format == "pdf":
-            generate_pdf_from_markdown(payload.session_id, md=md)
-            return {"ok": True, "format": "pdf", "download_path": f"/api/chat/report/{payload.session_id}.pdf"}
-        return {"ok": True, "format": "md", "download_path": f"/api/chat/report/{payload.session_id}.md", "md": md}
+            return {"ok": True, "format": "pdf", "download_path": _report_download_path(payload.session_id, "pdf")}
+        return {
+            "ok": True,
+            "format": "md",
+            "download_path": _report_download_path(payload.session_id, "md"),
+            "md": md,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -162,9 +346,9 @@ async def chat_report(payload: ReportPayload) -> dict[str, Any]:
 @app.get("/api/chat/report/{filename}")
 async def download_report(filename: str) -> FileResponse:
     try:
-        from crewai_demo.reporting import _reports_dir  # noqa: SLF001
-
-        base = _reports_dir()
+        if not re.match(r"^[a-zA-Z0-9_-]+\.(md|pdf)$", filename):
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        base = _output_dir()
         target = (base / filename).resolve()
         try:
             target.relative_to(base.resolve())
@@ -237,7 +421,6 @@ async def run_stream(payload: RunPayload) -> StreamingResponse:
 def run_server() -> None:
     import uvicorn
 
-    # 8080 suele fallar en Windows (WinError 10013) por exclusiones de Hyper-V / rangos reservados.
     host = os.environ.get("CREW_UI_HOST", "127.0.0.1")
     raw_port = os.environ.get("CREW_UI_PORT") or os.environ.get("PORT") or "8765"
     try:

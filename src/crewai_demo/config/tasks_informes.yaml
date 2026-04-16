@@ -1,0 +1,17 @@
+generar_informe_conversacion:
+  description: >
+    Session id: {session_id}
+
+    Historial de la conversación (JSON): {conversation_history}
+
+    Generá un informe en Markdown que resuma:
+    - Resumen ejecutivo
+    - Temas consultados por el usuario
+    - Hallazgos o respuestas relevantes (según conste en el historial)
+    - Consultas SQL mencionadas en el historial en campo query_generada (si existen)
+    - Recomendaciones o próximos pasos
+
+    No inventes cifras ni tablas que no aparezcan en el historial.
+  expected_output: >
+    Un documento Markdown completo (títulos ## y ###, listas donde corresponda). Sin bloque de código fence envolviendo todo el documento.
+  agent: redactor_informes

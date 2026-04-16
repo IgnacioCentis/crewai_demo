@@ -1,16 +1,20 @@
-research_task:
+# Tareas del crew de chat (analista de datos). Convención CrewAI: config/tasks.yaml
+# Ver https://docs.crewai.com/
+responder_chat:
   description: >
-    Realiza una investigación exhaustiva sobre {topic}
-    Asegúrate de encontrar información interesante y relevante, dado que
-    el año actual es {current_year}.
-  expected_output: >
-    Una lista con 5 puntos clave de la información más relevante sobre {topic}
-  agent: researcher
+    Contexto de sesión: {session_id}
 
-reporting_task:
-  description: >
-    Revisa el contexto obtenido y desarrolla cada tema en una sección completa para el informe.
+    Historial reciente de la conversación (JSON, más antiguo primero en el arreglo si el sistema lo ordenó así;
+    usalo solo como contexto): {conversation_history}
+
+    Mensaje actual del usuario: {message}
+
+    Instrucciones:
+    - Si el usuario pide datos, métricas, listados, rankings, stock, ventas, productos, recetas o insumos,
+      usá la herramienta consulta_mysql_analytics con una única consulta SELECT válida sobre las tablas permitidas.
+    - Si el mensaje es un saludo, charla general, o no requiere consultar la base, no uses la herramienta y respondé de forma conversacional.
+    - Si la pregunta es ambigua para SQL, pedí una aclaración breve (fechas, código de producto, cliente, etc.).
+    - Respondé siempre en español.
   expected_output: >
-    Un informe completo con los temas principales, cada uno con una sección completa de información.
-  agent: reporting_analyst
-  output_file: output/report.md
+    La respuesta final al usuario en texto claro (puede incluir listas o bullets). No incluyas JSON de salida.
+  agent: analista_datos
