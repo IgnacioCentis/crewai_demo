@@ -7,6 +7,10 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "crewai==0.203.2",
     "fastapi>=0.115.0",
+    "pymysql>=1.1.1",
+    "python-dotenv>=1.0.1",
+    "reportlab>=4.2.5",
+    "sqlalchemy>=2.0.36",
     "uvicorn[standard]>=0.32.0",
 ]
 
@@ -18,6 +22,7 @@ replay = "crewai_demo.main:replay"
 test = "crewai_demo.main:test"
 run_with_trigger = "crewai_demo.main:run_with_trigger"
 serve_ui = "crewai_demo.webapp:run_server"
+db_check = "crewai_demo.db:cli_check"
 
 [build-system]
 requires = ["hatchling"]

@@ -40,6 +40,16 @@ class RunPayload(BaseModel):
     current_year: str = Field(..., min_length=1, max_length=10)
 
 
+class ChatPayload(BaseModel):
+    session_id: str = Field(..., min_length=8, max_length=128)
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class ReportPayload(BaseModel):
+    session_id: str = Field(..., min_length=8, max_length=128)
+    format: str = Field("md", pattern="^(md|pdf)$")
+
+
 class _QueueStream(io.TextIOBase):
     def __init__(self, q: queue.Queue[str | None]) -> None:
         self._q = q
@@ -92,6 +102,81 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/api/db/health")
+async def db_health() -> dict[str, Any]:
+    try:
+        from crewai_demo.db import check_db_connection
+
+        return check_db_connection()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat")
+async def chat_endpoint(payload: ChatPayload) -> dict[str, Any]:
+    try:
+        from crewai_demo.chat import chat
+
+        r = chat(session_id=payload.session_id, usuario_pregunta=payload.message.strip())
+        return {
+            "ok": True,
+            "session_id": r.session_id,
+            "ia_respuesta": r.ia_respuesta,
+            "usuario_pregunta": r.usuario_pregunta,
+            "query_generada": r.query_generada,
+            "report_format": getattr(r, "report_format", ""),
+            "report_download_path": getattr(r, "report_download_path", ""),
+            "report_md": getattr(r, "report_md", ""),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/chat/history")
+async def chat_history(session_id: str, limit: int = 200) -> dict[str, Any]:
+    try:
+        from crewai_demo.chat import get_history
+
+        return {"ok": True, "session_id": session_id, "items": get_history(session_id=session_id, limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/report")
+async def chat_report(payload: ReportPayload) -> dict[str, Any]:
+    try:
+        from crewai_demo.reporting import generate_markdown_report, generate_pdf_from_markdown, report_paths
+
+        md = generate_markdown_report(payload.session_id)
+        paths = report_paths(payload.session_id)
+        if payload.format == "pdf":
+            generate_pdf_from_markdown(payload.session_id, md=md)
+            return {"ok": True, "format": "pdf", "download_path": f"/api/chat/report/{payload.session_id}.pdf"}
+        return {"ok": True, "format": "md", "download_path": f"/api/chat/report/{payload.session_id}.md", "md": md}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/chat/report/{filename}")
+async def download_report(filename: str) -> FileResponse:
+    try:
+        from crewai_demo.reporting import _reports_dir  # noqa: SLF001
+
+        base = _reports_dir()
+        target = (base / filename).resolve()
+        try:
+            target.relative_to(base.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404)
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Report not found")
+        return FileResponse(target)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/")

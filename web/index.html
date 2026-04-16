@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CrewAI Demo</title>
+  <title>Chocolart AI Chat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -13,48 +13,62 @@
   <div class="bg-glow" aria-hidden="true"></div>
   <main class="shell">
     <header class="hero">
-      <p class="eyebrow">Crew local</p>
-      <h1>Ejecutá tu crew</h1>
-      <p class="lede">Completá el tema y el año, presioná <strong>Comenzar</strong> y seguí la ejecución en vivo.</p>
+      <p class="eyebrow">Chocolart</p>
+      <h1>Chat con tus datos</h1>
+      <p class="lede">Preguntá sobre insumos, recetas, productos terminados y ventas. El chat se guarda por <strong>session_id</strong> del navegador.</p>
     </header>
 
     <section class="card form-card">
-      <form id="run-form" class="form">
-        <label class="field">
-          <span class="label">Tema del research</span>
-          <input type="text" id="topic" name="topic" placeholder="Ej: IA generativa en salud" required autocomplete="off" />
-        </label>
-        <label class="field">
-          <span class="label">Año actual (contexto)</span>
-          <input type="text" id="current_year" name="current_year" placeholder="2026" required pattern="[0-9]{4}" />
-        </label>
-        <div class="actions">
-          <button type="submit" id="btn-start" class="btn primary">
-            <span class="btn-text">Comenzar</span>
-            <span class="btn-spinner" hidden aria-hidden="true"></span>
-          </button>
-          <button type="button" id="btn-clear" class="btn ghost">Limpiar log</button>
-        </div>
-      </form>
-    </section>
+      <div class="tabs" role="tablist" aria-label="Chat tabs">
+        <button class="tab active" id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat">Chat</button>
+        <button class="tab" id="tab-history" role="tab" aria-selected="false" aria-controls="panel-history">Historial</button>
+        <button class="tab" id="tab-report" role="tab" aria-selected="false" aria-controls="panel-report">Informe</button>
+      </div>
 
-    <div class="grid-two">
-      <section class="card">
-        <div class="card-head">
-          <h2>Ejecución</h2>
-          <span id="status-pill" class="pill idle">Listo</span>
-        </div>
-        <pre id="log" class="log" aria-live="polite"></pre>
-      </section>
-      <section class="card">
-        <div class="card-head">
-          <h2>Resultado</h2>
-        </div>
-        <div id="result-final" class="result-block muted">El resumen final del crew aparecerá aquí.</div>
-        <h3 class="subhead">Informe (report.md)</h3>
-        <article id="result-report" class="report prose muted">Todavía no hay informe generado.</article>
-      </section>
-    </div>
+      <div class="panels">
+        <section id="panel-chat" class="panel active" role="tabpanel" aria-labelledby="tab-chat">
+          <div class="card-head tight">
+            <h2>Conversación</h2>
+            <span id="status-pill" class="pill idle">Listo</span>
+          </div>
+          <div id="chat-thread" class="thread" aria-live="polite"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" placeholder="Escribí tu pregunta…" autocomplete="off" required />
+            <button type="submit" id="btn-send" class="btn primary">
+              <span class="btn-text">Enviar</span>
+              <span class="btn-spinner" hidden aria-hidden="true"></span>
+            </button>
+          </form>
+          <details class="details">
+            <summary>Ver última query generada</summary>
+            <pre id="last-query" class="codebox muted">—</pre>
+          </details>
+        </section>
+
+        <section id="panel-history" class="panel" role="tabpanel" aria-labelledby="tab-history">
+          <div class="card-head tight">
+            <h2>Historial (DB)</h2>
+            <button type="button" id="btn-refresh-history" class="btn ghost">Actualizar</button>
+          </div>
+          <div id="history-list" class="history muted">Cargando…</div>
+        </section>
+
+        <section id="panel-report" class="panel" role="tabpanel" aria-labelledby="tab-report">
+          <div class="card-head tight">
+            <h2>Informe</h2>
+            <div class="actions">
+              <button type="button" id="btn-generate-md" class="btn primary">Generar .md</button>
+              <button type="button" id="btn-generate-pdf" class="btn ghost">Generar .pdf</button>
+            </div>
+          </div>
+          <article id="report-preview" class="report prose muted">Todavía no hay informe generado.</article>
+          <div class="actions">
+            <a id="download-md" class="btn ghost" href="#" download hidden>Descargar .md</a>
+            <a id="download-pdf" class="btn ghost" href="#" download hidden>Descargar .pdf</a>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
   <script src="/assets/app.js"></script>
 </body>
