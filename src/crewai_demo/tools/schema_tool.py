@@ -118,23 +118,46 @@ def _normalize_user_columns(raw: Any) -> list[dict[str, Any]] | None:
     return out
 
 
+def _table_meta_from_yaml(uentry: dict[str, Any]) -> dict[str, Any]:
+    """PK, índices y notas documentados en db_schema.yaml (si existen)."""
+    meta: dict[str, Any] = {}
+    pk = uentry.get("primary_key")
+    if isinstance(pk, list) and pk and all(isinstance(x, str) and x.strip() for x in pk):
+        meta["primary_key"] = [str(x).strip() for x in pk]
+    idx = uentry.get("indexes")
+    if isinstance(idx, list) and idx:
+        meta["indexes"] = idx
+    notes = uentry.get("table_notes")
+    if isinstance(notes, str) and notes.strip():
+        meta["table_notes"] = notes.strip()
+    return meta
+
+
 def _merge_schema(requested: frozenset[str]) -> dict[str, Any]:
     user_doc = _try_load_yaml(_USER_SCHEMA_PATH)
     user_tables = user_doc.get("tables") if isinstance(user_doc.get("tables"), dict) else {}
+    schema_notes = user_doc.get("schema_notes")
+    global_notes: list[str] = []
+    if isinstance(schema_notes, list):
+        global_notes = [str(x).strip() for x in schema_notes if str(x).strip()]
 
     introspected = _get_introspection_cached(requested)
     merged: dict[str, Any] = {"tables": {}}
+    if global_notes:
+        merged["schema_notes"] = global_notes
 
     for table in sorted(requested):
         uentry = user_tables.get(table) if isinstance(user_tables.get(table), dict) else {}
         udesc = str(uentry.get("description") or "").strip()
         ucols = _normalize_user_columns(uentry.get("columns"))
+        extra = _table_meta_from_yaml(uentry)
 
         if ucols is not None and len(ucols) > 0:
             merged["tables"][table] = {
                 "source": "db_schema.yaml",
                 "description": udesc,
                 "columns": ucols,
+                **extra,
             }
             continue
 
@@ -143,6 +166,7 @@ def _merge_schema(requested: frozenset[str]) -> dict[str, Any]:
             "source": "information_schema",
             "description": udesc,
             "columns": cols,
+            **extra,
         }
     return merged
 
@@ -157,9 +181,9 @@ class SchemaQueryInput(BaseModel):
 class DatabaseSchemaTool(BaseTool):
     name: str = "schema_mysql_chocolart"
     description: str = (
-        "Devuelve el esquema (columnas y metadatos) de tablas de negocio permitidas en MySQL. "
-        "Usala cuando necesites confirmar nombres de columnas, tipos o comentarios antes de armar un SELECT. "
-        "No ejecuta consultas de negocio: solo describe estructura. "
+        "Devuelve el esquema (columnas, PK, índices documentados y notas) de tablas permitidas en MySQL. "
+        "Usala para confirmar columnas, claves e índices antes de armar JOINs y filtros eficientes. "
+        "No ejecuta consultas de negocio. "
         "Parámetro: tables = 'all' o por ejemplo 'ventas,insumos'."
     )
     args_schema: Type[BaseModel] = SchemaQueryInput

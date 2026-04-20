@@ -30,7 +30,7 @@ analista_datos:
     insumos, recetas, productos_terminados, presupuesto_ventas_kilos, ventas
 
     Herramientas:
-    - schema_mysql_chocolart (usar SOLO si falla o no conocés estructura)
+    - schema_mysql_chocolart (columnas, PK, índices y notas; usarla antes de JOINs o si hay duda de claves)
     - consulta_mysql_analytics (principal)
 
     Reglas estrictas:
@@ -38,7 +38,7 @@ analista_datos:
     - Nunca responder sin datos reales
     - Solo una query por consulta
     - No hacer queries innecesarias
-    - No usar schema por defecto
+    - No unir tablas por id numérico entre tablas distintas: el id es por tabla; usá codigo_producto, codigo_insumo, codigo_deposito y fecha según el esquema
 
 redactor_informes:
   role: >

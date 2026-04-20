@@ -1,16 +1,28 @@
 # Esquema Chocolart — alineado al export MySQL (tablas de negocio permitidas).
-# Lo consume la herramienta schema_mysql_chocolart del agente analista_datos.
+# PK e índices secundarios según DDL. Lo consume la herramienta schema_mysql_chocolart.
+
+schema_notes:
+  - "El id numérico es surrogate por tabla (clave técnica); no unas tablas distintas por id salvo que sea la misma tabla."
+  - "Para JOINs y agregaciones usá codigo_producto, codigo_insumo, codigo_deposito y fecha alineados con los índices listados."
+  - "Preferí filtros sobre columnas indexadas cuando respondan a la pregunta (mejor plan de ejecución)."
 
 tables:
   insumos:
     description: "Insumos con stock y costo por depósito."
+    primary_key: [id]
+    indexes:
+      - name: idx_insumos_codigo
+        columns: [codigo_insumo]
+      - name: idx_insumos_deposito
+        columns: [codigo_deposito]
+    table_notes: "Búsqueda típica por codigo_insumo y/o codigo_deposito (índices dedicados)."
     columns:
       - name: id
         type: int(11) NOT NULL
-        description: "PK"
+        description: "PK surrogate (solo identifica fila en esta tabla)."
       - name: codigo_insumo
         type: varchar(100) DEFAULT NULL
-        description: ""
+        description: "Clave de negocio para insumo; usar en JOIN con recetas.codigo_insumo."
       - name: descripcion_insumo
         type: text
         description: ""
@@ -28,20 +40,29 @@ tables:
         description: ""
       - name: codigo_deposito
         type: varchar(50) DEFAULT NULL
-        description: ""
+        description: "Depósito; combinar con codigo_insumo para stock por ubicación."
       - name: ultima_actualizacion
         type: timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         description: ""
 
   presupuesto_ventas_kilos:
     description: "Presupuesto de ventas en kilos por producto, año y mes."
+    primary_key: [id]
+    indexes:
+      - name: idx_presupuesto_producto
+        columns: [codigo_producto]
+      - name: idx_presupuesto_anio
+        columns: [anio]
+      - name: idx_presupuesto_producto_anio
+        columns: [codigo_producto, anio]
+    table_notes: "Filtro por producto y año encaja en idx_presupuesto_producto_anio."
     columns:
       - name: id
         type: int(11) NOT NULL
-        description: "PK"
+        description: "PK surrogate (solo esta tabla)."
       - name: codigo_producto
         type: varchar(50) DEFAULT NULL
-        description: ""
+        description: "Enlace a ventas / productos_terminados / recetas por código de producto."
       - name: tipo_producto
         type: varchar(100) DEFAULT NULL
         description: ""
@@ -90,13 +111,20 @@ tables:
 
   productos_terminados:
     description: "Producto terminado con stock por depósito."
+    primary_key: [id]
+    indexes:
+      - name: idx_productos_codigo
+        columns: [codigo_producto]
+      - name: idx_productos_deposito
+        columns: [codigo_deposito]
+    table_notes: "Unión con ventas o recetas habitualmente por codigo_producto."
     columns:
       - name: id
         type: int(11) NOT NULL
-        description: "PK"
+        description: "PK surrogate (solo esta tabla)."
       - name: codigo_producto
         type: varchar(100) DEFAULT NULL
-        description: ""
+        description: "Clave de negocio hacia ventas, recetas y presupuesto."
       - name: descripcion_producto
         type: text
         description: ""
@@ -115,10 +143,19 @@ tables:
 
   recetas:
     description: "Composición de insumos por producto (BOM)."
+    primary_key: [id]
+    indexes:
+      - name: idx_recetas_producto
+        columns: [codigo_producto]
+      - name: idx_recetas_insumo
+        columns: [codigo_insumo]
+      - name: idx_recetas_producto_insumo
+        columns: [codigo_producto, codigo_insumo]
+    table_notes: "JOIN a insumos por codigo_insumo; a ventas/productos por codigo_producto. Índice compuesto cubre ambos."
     columns:
       - name: id
         type: int(11) NOT NULL
-        description: "PK"
+        description: "PK surrogate (solo esta tabla)."
       - name: codigo_producto
         type: varchar(100) DEFAULT NULL
         description: ""
@@ -140,10 +177,30 @@ tables:
 
   ventas:
     description: "Ventas por línea (fecha, cliente, producto, importes y cantidades)."
+    primary_key: [id]
+    indexes:
+      - name: idx_fecha
+        columns: [fecha]
+      - name: idx_cliente
+        columns: [cliente]
+        note: "Índice con prefijo de 50 caracteres en MySQL: cliente(50)."
+      - name: idx_ventas_fecha
+        columns: [fecha]
+      - name: idx_ventas_codigo_producto
+        columns: [codigo_producto]
+      - name: idx_ventas_tipo_producto
+        columns: [tipo_producto]
+      - name: idx_ventas_cliente
+        columns: [cliente]
+      - name: idx_ventas_fecha_producto
+        columns: [fecha, codigo_producto]
+      - name: idx_ventas_anio_tipo
+        columns: [fecha, tipo_producto]
+    table_notes: "Rangos por fecha y producto usan idx_ventas_fecha_producto; por fecha y tipo idx_ventas_anio_tipo."
     columns:
       - name: id
         type: int(11) NOT NULL
-        description: "PK"
+        description: "PK surrogate (solo esta tabla)."
       - name: fecha
         type: date NOT NULL
         description: ""
