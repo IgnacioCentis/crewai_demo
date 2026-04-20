@@ -154,6 +154,28 @@ body {
   align-self: flex-start;
 }
 
+.bubble.step {
+  align-self: center;
+  max-width: 92%;
+  border-style: dashed;
+  border-color: rgba(94, 234, 212, 0.22);
+  background: rgba(94, 234, 212, 0.06);
+  color: #b7c7d6;
+  font-size: 0.82rem;
+  animation: fadeIn 160ms ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .chat-form {
   display: flex;
   gap: 0.75rem;

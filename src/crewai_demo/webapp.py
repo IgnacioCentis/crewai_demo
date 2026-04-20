@@ -156,7 +156,83 @@ def _run_crew_blocking(inputs: dict[str, str], log_q: queue.Queue[str | None]) -
     return result
 
 
-def _run_chat_crew(session_id: str, message: str, conversation_history_json: str) -> str:
+def _clip(s: str, n: int = 160) -> str:
+    s = (s or "").replace("\r", " ").replace("\n", " ").strip()
+    if len(s) <= n:
+        return s
+    return s[: n - 1] + "…"
+
+
+def _emit_step(log_q: queue.Queue[str | None] | None, text: str) -> None:
+    if not log_q or not text:
+        return
+    log_q.put(json.dumps({"type": "step", "text": text}, ensure_ascii=False) + "\n")
+
+
+def _make_crew_callbacks(log_q: queue.Queue[str | None] | None) -> tuple[Any, Any]:
+    from crewai.agents.parser import AgentAction, AgentFinish
+
+    def step_callback(step: Any) -> None:
+        try:
+            if isinstance(step, AgentAction):
+                tool = getattr(step, "tool", "") or ""
+                thought = _clip(getattr(step, "thought", "") or "", 140)
+                extra = ""
+                if tool == "consulta_mysql_analytics":
+                    raw = (getattr(step, "tool_input", "") or "").strip()
+                    try:
+                        obj = json.loads(raw) if raw else {}
+                        sql = str(obj.get("sql", "")).strip()
+                        if sql:
+                            extra = f" · SQL: {_clip(sql, 120)}"
+                    except Exception:
+                        extra = ""
+                elif tool == "schema_mysql_chocolart":
+                    raw = (getattr(step, "tool_input", "") or "").strip()
+                    try:
+                        obj = json.loads(raw) if raw else {}
+                        tables = str(obj.get("tables", "")).strip()
+                        if tables:
+                            extra = f" · tablas: {_clip(tables, 80)}"
+                    except Exception:
+                        extra = ""
+                msg = f"Herramienta: {tool}{extra}"
+                if thought:
+                    msg = f"{msg}\n{_clip(thought, 200)}"
+                _emit_step(log_q, msg)
+            elif isinstance(step, AgentFinish):
+                thought = _clip(getattr(step, "thought", "") or "", 140)
+                msg = "Respuesta lista"
+                if thought:
+                    msg = f"{msg}\n{thought}"
+                _emit_step(log_q, msg)
+        except Exception:
+            # Never break agent execution because of UI telemetry
+            return
+
+    def task_callback(task_output: Any) -> None:
+        try:
+            name = getattr(task_output, "name", "") or ""
+            agent = getattr(task_output, "agent", "") or ""
+            raw = getattr(task_output, "raw", None)
+            preview = _clip(str(raw) if raw is not None else "", 180)
+            msg = f"Tarea: {name or '(sin nombre)'} · Agente: {agent or '—'}"
+            if preview:
+                msg = f"{msg}\n{preview}"
+            _emit_step(log_q, msg)
+        except Exception:
+            return
+
+    return step_callback, task_callback
+
+
+def _run_chat_crew(
+    session_id: str,
+    message: str,
+    conversation_history_json: str,
+    *,
+    log_q: queue.Queue[str | None] | None = None,
+) -> str:
     root = _project_root()
     os.chdir(root)
     load_dotenv(root / ".env")
@@ -170,21 +246,43 @@ def _run_chat_crew(session_id: str, message: str, conversation_history_json: str
         "conversation_history": conversation_history_json,
     }
 
+    step_cb, task_cb = _make_crew_callbacks(log_q)
+
     # Router -> decide if we should query DB
     decision = ""
     try:
-        decision = str(ChocolartRouter().crew().kickoff(inputs=inputs) or "").strip()
+        _emit_step(log_q, "Router: clasificando intención…")
+        decision = str(
+            ChocolartRouter()
+            .crew()
+            .model_copy(update={"verbose": False, "step_callback": step_cb, "task_callback": task_cb})
+            .kickoff(inputs=inputs)
+            or ""
+        ).strip()
     except Exception:
         logger.exception("Router failure (session_id=%s)", session_id)
         # If router fails, fall back to assistant (keeps UI usable).
         decision = "DB_REQUIRED"
 
     logger.info("Router decision (session_id=%s): %s", session_id, decision)
+    _emit_step(log_q, f"Router: { _clip(decision, 200) }")
 
     if "DB_REQUIRED" in decision:
-        out = ChocolartAssistant().crew().kickoff(inputs=inputs)
+        _emit_step(log_q, "Analista: consultando base de datos…")
+        out = (
+            ChocolartAssistant()
+            .crew()
+            .model_copy(update={"verbose": False, "step_callback": step_cb, "task_callback": task_cb})
+            .kickoff(inputs=inputs)
+        )
     else:
-        out = ChocolartNoDb().crew().kickoff(inputs=inputs)
+        _emit_step(log_q, "Asistente: respondiendo sin base de datos…")
+        out = (
+            ChocolartNoDb()
+            .crew()
+            .model_copy(update={"verbose": False, "step_callback": step_cb, "task_callback": task_cb})
+            .kickoff(inputs=inputs)
+        )
 
     return str(out) if out is not None else ""
 
@@ -202,6 +300,125 @@ def _run_report_crew(session_id: str, conversation_history_json: str) -> str:
         }
     )
     return str(out) if out is not None else ""
+
+
+def _handle_chat_message(session_id: str, msg: str, *, log_q: queue.Queue[str | None] | None = None) -> dict[str, Any]:
+    from crewai_demo.historico import dumps_jsonable, get_history, insert_historico_chat_ai
+    from crewai_demo.output_reports import write_md_and_pdf
+    from crewai_demo.tools.db_query_tool import get_last_executed_sql
+
+    session_id = (session_id or "").strip()
+    msg = (msg or "").strip()
+
+    if not session_id:
+        raise ValueError("session_id requerido")
+    if not msg:
+        raise ValueError("message requerido")
+
+    if session_id in _PENDING_REPORT_CONFIRMATION:
+        if _YES_RE.match(msg):
+            _PENDING_REPORT_CONFIRMATION.discard(session_id)
+            hist = get_history(session_id, limit=200)
+            hist_json = dumps_jsonable(list(reversed(hist)))
+            md = _run_report_crew(session_id, hist_json).strip()
+            write_md_and_pdf(session_id, md or "# Informe\n\n(vacío)")
+            answer = (
+                "Listo. Generé el informe en **Markdown** y **PDF** en la carpeta `output` "
+                f"(`{session_id}.md` y `{session_id}.pdf`). Podés descargarlos desde la pestaña **Informe**."
+            )
+            insert_historico_chat_ai(
+                session_id=session_id,
+                usuario_pregunta=msg,
+                ia_respuesta=answer,
+                query_generada="",
+            )
+            return {
+                "ok": True,
+                "session_id": session_id,
+                "ia_respuesta": answer,
+                "usuario_pregunta": msg,
+                "query_generada": "",
+                "report_format": "md",
+                "report_download_path": _report_download_path(session_id, "md"),
+                "report_md": md,
+            }
+        if _NO_RE.match(msg):
+            _PENDING_REPORT_CONFIRMATION.discard(session_id)
+            answer = "Perfecto, no genero informe. Si más adelante lo necesitás, pedime un informe o reporte."
+            insert_historico_chat_ai(
+                session_id=session_id,
+                usuario_pregunta=msg,
+                ia_respuesta=answer,
+                query_generada="",
+            )
+            return {
+                "ok": True,
+                "session_id": session_id,
+                "ia_respuesta": answer,
+                "usuario_pregunta": msg,
+                "query_generada": "",
+                "report_format": "",
+                "report_download_path": "",
+                "report_md": "",
+            }
+        answer = _ask_report_confirmation()
+        insert_historico_chat_ai(
+            session_id=session_id,
+            usuario_pregunta=msg,
+            ia_respuesta=answer,
+            query_generada="",
+        )
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "ia_respuesta": answer,
+            "usuario_pregunta": msg,
+            "query_generada": "",
+            "report_format": "",
+            "report_download_path": "",
+            "report_md": "",
+        }
+
+    if _wants_report(msg):
+        _PENDING_REPORT_CONFIRMATION.add(session_id)
+        answer = _ask_report_confirmation()
+        insert_historico_chat_ai(
+            session_id=session_id,
+            usuario_pregunta=msg,
+            ia_respuesta=answer,
+            query_generada="",
+        )
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "ia_respuesta": answer,
+            "usuario_pregunta": msg,
+            "query_generada": "",
+            "report_format": "",
+            "report_download_path": "",
+            "report_md": "",
+        }
+
+    hist = get_history(session_id, limit=20)
+    hist_json = dumps_jsonable(list(reversed(hist)))
+    answer = _run_chat_crew(session_id, msg, hist_json, log_q=log_q).strip()
+    sql = get_last_executed_sql()
+    insert_historico_chat_ai(
+        session_id=session_id,
+        usuario_pregunta=msg,
+        ia_respuesta=answer,
+        query_generada=sql,
+    )
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "ia_respuesta": answer,
+        "usuario_pregunta": msg,
+        "query_generada": sql,
+        "report_format": "",
+        "report_download_path": "",
+        "report_md": "",
+    }
 
 
 app = FastAPI(title="CrewAI Demo UI", version="0.1.0")
@@ -227,120 +444,58 @@ async def db_health() -> dict[str, Any]:
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatPayload) -> dict[str, Any]:
     try:
-        from crewai_demo.historico import dumps_jsonable, get_history, insert_historico_chat_ai
-        from crewai_demo.output_reports import write_md_and_pdf
-        from crewai_demo.tools.db_query_tool import get_last_executed_sql
-
-        session_id = payload.session_id.strip()
-        msg = payload.message.strip()
-
-        if session_id in _PENDING_REPORT_CONFIRMATION:
-            if _YES_RE.match(msg):
-                _PENDING_REPORT_CONFIRMATION.discard(session_id)
-                hist = get_history(session_id, limit=200)
-                hist_json = dumps_jsonable(list(reversed(hist)))
-                md = _run_report_crew(session_id, hist_json).strip()
-                write_md_and_pdf(session_id, md or "# Informe\n\n(vacío)")
-                answer = (
-                    "Listo. Generé el informe en **Markdown** y **PDF** en la carpeta `output` "
-                    f"(`{session_id}.md` y `{session_id}.pdf`). Podés descargarlos desde la pestaña **Informe**."
-                )
-                insert_historico_chat_ai(
-                    session_id=session_id,
-                    usuario_pregunta=payload.message,
-                    ia_respuesta=answer,
-                    query_generada="",
-                )
-                return {
-                    "ok": True,
-                    "session_id": session_id,
-                    "ia_respuesta": answer,
-                    "usuario_pregunta": payload.message,
-                    "query_generada": "",
-                    "report_format": "md",
-                    "report_download_path": _report_download_path(session_id, "md"),
-                    "report_md": md,
-                }
-            if _NO_RE.match(msg):
-                _PENDING_REPORT_CONFIRMATION.discard(session_id)
-                answer = "Perfecto, no genero informe. Si más adelante lo necesitás, pedime un informe o reporte."
-                insert_historico_chat_ai(
-                    session_id=session_id,
-                    usuario_pregunta=payload.message,
-                    ia_respuesta=answer,
-                    query_generada="",
-                )
-                return {
-                    "ok": True,
-                    "session_id": session_id,
-                    "ia_respuesta": answer,
-                    "usuario_pregunta": payload.message,
-                    "query_generada": "",
-                    "report_format": "",
-                    "report_download_path": "",
-                    "report_md": "",
-                }
-            answer = _ask_report_confirmation()
-            insert_historico_chat_ai(
-                session_id=session_id,
-                usuario_pregunta=payload.message,
-                ia_respuesta=answer,
-                query_generada="",
-            )
-            return {
-                "ok": True,
-                "session_id": session_id,
-                "ia_respuesta": answer,
-                "usuario_pregunta": payload.message,
-                "query_generada": "",
-                "report_format": "",
-                "report_download_path": "",
-                "report_md": "",
-            }
-
-        if _wants_report(msg):
-            _PENDING_REPORT_CONFIRMATION.add(session_id)
-            answer = _ask_report_confirmation()
-            insert_historico_chat_ai(
-                session_id=session_id,
-                usuario_pregunta=payload.message,
-                ia_respuesta=answer,
-                query_generada="",
-            )
-            return {
-                "ok": True,
-                "session_id": session_id,
-                "ia_respuesta": answer,
-                "usuario_pregunta": payload.message,
-                "query_generada": "",
-                "report_format": "",
-                "report_download_path": "",
-                "report_md": "",
-            }
-
-        hist = get_history(session_id, limit=20)
-        hist_json = dumps_jsonable(list(reversed(hist)))
-        answer = _run_chat_crew(session_id, msg, hist_json).strip()
-        sql = get_last_executed_sql()
-        insert_historico_chat_ai(
-            session_id=session_id,
-            usuario_pregunta=payload.message,
-            ia_respuesta=answer,
-            query_generada=sql,
-        )
-        return {
-            "ok": True,
-            "session_id": session_id,
-            "ia_respuesta": answer,
-            "usuario_pregunta": payload.message,
-            "query_generada": sql,
-            "report_format": "",
-            "report_download_path": "",
-            "report_md": "",
-        }
+        return _handle_chat_message(payload.session_id, payload.message)
     except Exception as e:
         logger.exception("Unhandled /api/chat error (session_id=%s)", getattr(payload, "session_id", ""))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/stream")
+async def chat_stream_endpoint(payload: ChatPayload) -> StreamingResponse:
+    """
+    Stream verbose execution logs + final result for a chat message.
+    """
+    log_q: queue.Queue[str | None] = queue.Queue()
+    result_holder: dict[str, Any] = {}
+
+    def worker() -> None:
+        try:
+            result_holder["data"] = _handle_chat_message(payload.session_id, payload.message, log_q=log_q)
+        except Exception as e:
+            logger.exception("Unhandled /api/chat/stream error (session_id=%s)", getattr(payload, "session_id", ""))
+            result_holder["data"] = {"ok": False, "error": str(e), "session_id": payload.session_id}
+        finally:
+            log_q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+    loop = asyncio.get_event_loop()
+
+    async def gen():
+        # Stream structured steps as SSE-like events (no raw stdout/stderr)
+        while True:
+            chunk = await loop.run_in_executor(None, log_q.get)
+            if chunk is None:
+                break
+            chunk = (chunk or "").strip()
+            if not chunk:
+                continue
+            try:
+                evt = json.loads(chunk)
+            except Exception:
+                continue
+            yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+        data = result_holder.get("data") or {}
+        yield f"data: {json.dumps({'type': 'result', **data}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/chat/history")

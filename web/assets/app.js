@@ -73,6 +73,11 @@
     el.textContent = text;
     thread.appendChild(el);
     thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+
+  function clearEphemeralSteps() {
+    thread.querySelectorAll(".bubble.step").forEach((n) => n.remove());
   }
 
   async function sendMessage(message) {
@@ -80,8 +85,11 @@
     setLoading(true);
     lastQuery.textContent = "—";
     lastQuery.classList.add("muted");
+    clearEphemeralSteps();
+    let liveStepEl = null;
     try {
-      const res = await fetch("/api/chat", {
+      // Prefer streaming endpoint (shows verbose logs while running).
+      const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId, message }),
@@ -90,32 +98,84 @@
         const t = await res.text();
         throw new Error(t || res.statusText);
       }
-      const data = await res.json();
-      addBubble("ai", data.ia_respuesta || "(sin respuesta)");
-      if (data.query_generada) {
-        lastQuery.textContent = data.query_generada;
-        lastQuery.classList.remove("muted");
-      }
-      if (data.report_download_path) {
-        if (data.report_format === "pdf") {
-          downloadPdf.href = data.report_download_path;
-          downloadPdf.hidden = false;
-          downloadMd.hidden = true;
-          reportPreview.textContent = "PDF generado. Usá el botón de descarga.";
-          reportPreview.classList.remove("muted");
-          setActiveTab("report");
+
+      // Read SSE-like stream from POST response.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buf = "";
+
+      function showStep(text) {
+        if (!text) return;
+        if (liveStepEl && liveStepEl.isConnected) {
+          liveStepEl.textContent = text;
         } else {
-          if (data.report_md) {
-            reportPreview.textContent = data.report_md;
+          liveStepEl = addBubble("step", text);
+        }
+        thread.scrollTop = thread.scrollHeight;
+      }
+
+      function handleResult(data) {
+        clearEphemeralSteps();
+        liveStepEl = null;
+        if (!data || data.ok === false) {
+          const errMsg = data && data.error ? data.error : "(sin detalle)";
+          addBubble("ai", "Error: " + errMsg);
+          setStatus("err");
+          return;
+        }
+
+        addBubble("ai", data.ia_respuesta || "(sin respuesta)");
+        if (data.query_generada) {
+          lastQuery.textContent = data.query_generada;
+          lastQuery.classList.remove("muted");
+        }
+        if (data.report_download_path) {
+          if (data.report_format === "pdf") {
+            downloadPdf.href = data.report_download_path;
+            downloadPdf.hidden = false;
+            downloadMd.hidden = true;
+            reportPreview.textContent = "PDF generado. Usá el botón de descarga.";
             reportPreview.classList.remove("muted");
+            setActiveTab("report");
+          } else {
+            if (data.report_md) {
+              reportPreview.textContent = data.report_md;
+              reportPreview.classList.remove("muted");
+            }
+            downloadMd.href = data.report_download_path;
+            downloadMd.hidden = false;
+            downloadPdf.hidden = true;
+            setActiveTab("report");
           }
-          downloadMd.href = data.report_download_path;
-          downloadMd.hidden = false;
-          downloadPdf.hidden = true;
-          setActiveTab("report");
+        }
+        setStatus("ok");
+      }
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        // SSE events separated by blank line
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const rawEvent = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const lines = rawEvent.split("\n");
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const jsonText = line.slice(6);
+            let evt;
+            try {
+              evt = JSON.parse(jsonText);
+            } catch {
+              continue;
+            }
+            if (evt.type === "step") showStep(evt.text || "");
+            if (evt.type === "result") handleResult(evt);
+          }
         }
       }
-      setStatus("ok");
     } catch (err) {
       addBubble("ai", "Error: " + String(err.message || err));
       setStatus("err");
