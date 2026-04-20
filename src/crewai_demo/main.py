@@ -2,23 +2,42 @@
 import sys
 import warnings
 
-from crewai_demo.crew import ChocolartAssistant
+from crewai_demo.crew import ChocolartAssistant, ChocolartNoDb, ChocolartRouter
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
 
+
 def run():
     """
-    Run the crew (Chocolart assistant de chat / datos).
+    Run the crew (Chocolart assistant con router + executor).
     """
+    user_msg = "Hola Soy tu ChocoAnalista, ¿qué datos necesitas consultar?"
+
     inputs = {
         "session_id": "cli_session",
-        "message": "Hola, ¿qué datos podés consultar?",
+        "message": user_msg,
         "conversation_history": "[]",
     }
 
     try:
-        ChocolartAssistant().crew().kickoff(inputs=inputs)
+        # 1️ROUTER
+        router = ChocolartRouter().crew()
+        decision = router.kickoff(inputs=inputs)
+
+        # 🔍 DEBUG (te recomiendo dejarlo)
+        print("Decision:", decision)
+
+        # 2️DECISIÓN
+        if "DB_REQUIRED" in str(decision):
+            executor = ChocolartAssistant().crew()
+            result = executor.kickoff(inputs=inputs)
+        else:
+            no_db = ChocolartNoDb().crew()
+            result = no_db.kickoff(inputs=inputs)
+
+        print("Respuesta:", result)
+
     except Exception as e:
         raise Exception(f"An error occurred while running the crew: {e}")
 

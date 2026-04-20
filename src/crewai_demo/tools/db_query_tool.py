@@ -46,8 +46,13 @@ def _is_safe_select(sql: str) -> bool:
     s = sql.strip().lower()
     if not s.startswith("select"):
         return False
+    # Allow a single trailing semicolon, but reject any other semicolons.
     if ";" in s:
-        return False
+        stripped = s.rstrip()
+        if stripped.endswith(";"):
+            stripped = stripped[:-1].rstrip()
+        if ";" in stripped:
+            return False
     banned = ["insert ", "update ", "delete ", "drop ", "alter ", "truncate ", "create ", "grant ", "revoke "]
     if any(b in s for b in banned):
         return False
@@ -85,6 +90,9 @@ class DatabaseAnalyticsTool(BaseTool):
 
     def _run(self, sql: str) -> str:
         raw = (sql or "").strip()
+        # LLMs often add a trailing ';' - tolerate it.
+        if raw.endswith(";"):
+            raw = raw[:-1].rstrip()
         if not _is_safe_select(raw):
             return json.dumps({"error": "Solo se permiten consultas SELECT seguras."}, ensure_ascii=False)
         if not _mentions_only_allowed_tables(raw):

@@ -1,0 +1,15 @@
+responder_con_db:
+  description: >
+    Mensaje del usuario: {message}
+
+    Usá la base de datos para responder con datos reales.
+
+    Reglas:
+    - Generá UNA sola consulta SQL (la mínima necesaria) y ejecutala con la herramienta de analytics
+    - No inventes números
+    - Si la pregunta está ambigua, pedí aclaración antes de consultar
+    - Si no conocés la estructura, usá la herramienta de schema SOLO si es necesario
+  expected_output: >
+    Respuesta clara en español basada en datos reales
+  agent: analista_datos
+

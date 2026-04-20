@@ -1,0 +1,14 @@
+responder_con_db:
+  description: >
+    Mensaje del usuario: {message}
+
+    Generá una consulta SQL válida usando consulta_mysql_analytics
+    y respondé con los resultados.
+
+    Reglas:
+    - Solo una query
+    - SQL claro y eficiente
+    - Usar solo tablas permitidas
+  expected_output: >
+    Respuesta clara basada en datos reales
+  agent: analista_datos

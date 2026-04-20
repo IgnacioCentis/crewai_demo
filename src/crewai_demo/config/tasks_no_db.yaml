@@ -1,0 +1,13 @@
+responder_sin_db:
+  description: >
+    Mensaje del usuario: {message}
+
+    Respondé de forma clara, profesional y útil SIN usar base de datos.
+
+    - No inventes datos numéricos
+    - Si falta contexto, hacé 1-3 preguntas concretas para poder ayudar
+    - Podés sugerir qué tipo de consulta o métricas pedir si el usuario quiere datos
+  expected_output: >
+    Respuesta clara en español
+  agent: router_analista
+

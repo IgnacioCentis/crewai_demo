@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import os
 import queue
 import re
@@ -22,6 +23,21 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
+
+logging.basicConfig(
+    level=os.environ.get("CREW_UI_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger("crewai_demo.webapp")
+
+# Ensure Windows console can print unicode (CrewAI verbose output often includes emojis)
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 _PENDING_REPORT_CONFIRMATION: set[str] = set()
 _YES_RE = re.compile(
@@ -144,17 +160,32 @@ def _run_chat_crew(session_id: str, message: str, conversation_history_json: str
     root = _project_root()
     os.chdir(root)
     load_dotenv(root / ".env")
-    from crewai_demo.crew import ChocolartAssistant
+    from crewai_demo.crew import ChocolartAssistant, ChocolartNoDb, ChocolartRouter
     from crewai_demo.tools.db_query_tool import reset_last_executed_sql
 
     reset_last_executed_sql()
-    out = ChocolartAssistant().crew().kickoff(
-        inputs={
-            "session_id": session_id,
-            "message": message,
-            "conversation_history": conversation_history_json,
-        }
-    )
+    inputs = {
+        "session_id": session_id,
+        "message": message,
+        "conversation_history": conversation_history_json,
+    }
+
+    # Router -> decide if we should query DB
+    decision = ""
+    try:
+        decision = str(ChocolartRouter().crew().kickoff(inputs=inputs) or "").strip()
+    except Exception:
+        logger.exception("Router failure (session_id=%s)", session_id)
+        # If router fails, fall back to assistant (keeps UI usable).
+        decision = "DB_REQUIRED"
+
+    logger.info("Router decision (session_id=%s): %s", session_id, decision)
+
+    if "DB_REQUIRED" in decision:
+        out = ChocolartAssistant().crew().kickoff(inputs=inputs)
+    else:
+        out = ChocolartNoDb().crew().kickoff(inputs=inputs)
+
     return str(out) if out is not None else ""
 
 
@@ -308,6 +339,7 @@ async def chat_endpoint(payload: ChatPayload) -> dict[str, Any]:
             "report_md": "",
         }
     except Exception as e:
+        logger.exception("Unhandled /api/chat error (session_id=%s)", getattr(payload, "session_id", ""))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -428,7 +460,15 @@ def run_server() -> None:
     except ValueError:
         port = 8765
 
-    uvicorn.run("crewai_demo.webapp:app", host=host, port=port, reload=False)
+    log_level = os.environ.get("CREW_UI_LOG_LEVEL", "info").lower()
+    uvicorn.run(
+        "crewai_demo.webapp:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level=log_level,
+        access_log=True,
+    )
 
 
 if __name__ == "__main__":
