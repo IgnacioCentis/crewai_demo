@@ -175,53 +175,21 @@ def _make_crew_callbacks(log_q: queue.Queue[str | None] | None) -> tuple[Any, An
     def step_callback(step: Any) -> None:
         try:
             if isinstance(step, AgentAction):
-                tool = getattr(step, "tool", "") or ""
-                thought = _clip(getattr(step, "thought", "") or "", 140)
-                extra = ""
-                if tool == "consulta_mysql_analytics":
-                    raw = (getattr(step, "tool_input", "") or "").strip()
-                    try:
-                        obj = json.loads(raw) if raw else {}
-                        sql = str(obj.get("sql", "")).strip()
-                        if sql:
-                            extra = f" · SQL: {_clip(sql, 120)}"
-                    except Exception:
-                        extra = ""
-                elif tool == "schema_mysql_chocolart":
-                    raw = (getattr(step, "tool_input", "") or "").strip()
-                    try:
-                        obj = json.loads(raw) if raw else {}
-                        tables = str(obj.get("tables", "")).strip()
-                        if tables:
-                            extra = f" · tablas: {_clip(tables, 80)}"
-                    except Exception:
-                        extra = ""
-                msg = f"Herramienta: {tool}{extra}"
+                # Solo el razonamiento del agente (verbose ReAct); no nombres de tools ni SQL/args.
+                thought = (getattr(step, "thought", "") or "").strip()
                 if thought:
-                    msg = f"{msg}\n{_clip(thought, 200)}"
-                _emit_step(log_q, msg)
+                    _emit_step(log_q, _clip(thought, 400))
             elif isinstance(step, AgentFinish):
-                thought = _clip(getattr(step, "thought", "") or "", 140)
-                msg = "Respuesta lista"
+                thought = (getattr(step, "thought", "") or "").strip()
                 if thought:
-                    msg = f"{msg}\n{thought}"
-                _emit_step(log_q, msg)
+                    _emit_step(log_q, _clip(thought, 400))
         except Exception:
             # Never break agent execution because of UI telemetry
             return
 
-    def task_callback(task_output: Any) -> None:
-        try:
-            name = getattr(task_output, "name", "") or ""
-            agent = getattr(task_output, "agent", "") or ""
-            raw = getattr(task_output, "raw", None)
-            preview = _clip(str(raw) if raw is not None else "", 180)
-            msg = f"Tarea: {name or '(sin nombre)'} · Agente: {agent or '—'}"
-            if preview:
-                msg = f"{msg}\n{preview}"
-            _emit_step(log_q, msg)
-        except Exception:
-            return
+    def task_callback(_task_output: Any) -> None:
+        # Silencioso: los resúmenes de tarea suelen duplicar salida de tools; el stream solo muestra thought (ReAct).
+        return
 
     return step_callback, task_callback
 
